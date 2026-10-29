@@ -1,12 +1,20 @@
 """Environment configuration for Stephen Industries."""
 from __future__ import annotations
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+# Set telemetry controls before CrewAI is imported by the application.
+os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 load_dotenv(PROJECT_ROOT / ".env")
+os.environ["CREWAI_DISABLE_TELEMETRY"] = os.getenv("CREWAI_DISABLE_TELEMETRY", "true")
+os.environ["OTEL_SDK_DISABLED"] = os.getenv("OTEL_SDK_DISABLED", "true")
+
 
 def _float_env(name: str, default: float) -> float:
     value = os.getenv(name)
@@ -20,6 +28,7 @@ def _float_env(name: str, default: float) -> float:
         raise ValueError(f"{name} must not be negative")
     return parsed
 
+
 def _int_env(name: str, default: int) -> int:
     value = os.getenv(name)
     if value is None or not value.strip():
@@ -32,9 +41,18 @@ def _int_env(name: str, default: int) -> int:
         raise ValueError(f"{name} must not be negative")
     return parsed
 
+
 def _path_env(name: str, default: str) -> Path:
     path = Path(os.getenv(name, default)).expanduser()
     return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def _bool_env(name: str, default: bool = True) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -53,6 +71,9 @@ class Settings:
     groq_output_usd_per_million: float
     deepseek_input_usd_per_million: float
     deepseek_output_usd_per_million: float
+    crewai_disable_telemetry: bool
+    otel_sdk_disabled: bool
+
 
 def load_settings() -> Settings:
     return Settings(
@@ -67,10 +88,13 @@ def load_settings() -> Settings:
         max_delegations_per_task=_int_env("MAX_DELEGATIONS_PER_TASK", 10),
         crewai_storage_dir=_path_env("CREWAI_STORAGE_DIR", "./.memory"),
         audit_db_path=_path_env("AUDIT_DB_PATH", "./audit.sqlite"),
-        groq_input_usd_per_million=_float_env("GROQ_INPUT_USD_PER_MILLION", 0.59),
-        groq_output_usd_per_million=_float_env("GROQ_OUTPUT_USD_PER_MILLION", 0.79),
-        deepseek_input_usd_per_million=_float_env("DEEPSEEK_INPUT_USD_PER_MILLION", 0.27),
-        deepseek_output_usd_per_million=_float_env("DEEPSEEK_OUTPUT_USD_PER_MILLION", 1.10),
+        groq_input_usd_per_million=_float_env("GROQ_INPUT_USD_PER_MILLION", 0.075),
+        groq_output_usd_per_million=_float_env("GROQ_OUTPUT_USD_PER_MILLION", 0.30),
+        deepseek_input_usd_per_million=_float_env("DEEPSEEK_INPUT_USD_PER_MILLION", 0.15),
+        deepseek_output_usd_per_million=_float_env("DEEPSEEK_OUTPUT_USD_PER_MILLION", 0.60),
+        crewai_disable_telemetry=_bool_env("CREWAI_DISABLE_TELEMETRY"),
+        otel_sdk_disabled=_bool_env("OTEL_SDK_DISABLED"),
     )
+
 
 settings = load_settings()

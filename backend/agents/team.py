@@ -5,8 +5,8 @@ import re
 import uuid
 from dataclasses import dataclass
 from typing import Callable
-from crewai import Agent, Crew, LLM, Process, Task
 from backend.config import Settings, settings
+from crewai import Agent, Crew, LLM, Process, Task
 from backend.guardrails.cost import CostTracker
 from backend.guardrails.delegation import DelegationCounter
 

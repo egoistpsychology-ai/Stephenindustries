@@ -90,8 +90,8 @@ def load_settings() -> Settings:
         audit_db_path=_path_env("AUDIT_DB_PATH", "./audit.sqlite"),
         groq_input_usd_per_million=_float_env("GROQ_INPUT_USD_PER_MILLION", 0.075),
         groq_output_usd_per_million=_float_env("GROQ_OUTPUT_USD_PER_MILLION", 0.30),
-        deepseek_input_usd_per_million=_float_env("DEEPSEEK_INPUT_USD_PER_MILLION", 0.15),
-        deepseek_output_usd_per_million=_float_env("DEEPSEEK_OUTPUT_USD_PER_MILLION", 0.60),
+        deepseek_input_usd_per_million=_float_env("DEEPSEEK_INPUT_USD_PER_MILLION", 0.30),
+        deepseek_output_usd_per_million=_float_env("DEEPSEEK_OUTPUT_USD_PER_MILLION", 1.20),
         crewai_disable_telemetry=_bool_env("CREWAI_DISABLE_TELEMETRY"),
         otel_sdk_disabled=_bool_env("OTEL_SDK_DISABLED"),
     )

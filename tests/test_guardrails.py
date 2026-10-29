@@ -1,11 +1,12 @@
 """Offline tests for Phase 1 guardrails and task orchestration."""
 import unittest
+from types import SimpleNamespace
 from dataclasses import replace
 from unittest.mock import patch
 
 from backend.config import settings
 from backend.agents import team
-from backend.guardrails.cost import CostLimitExceeded, CostTracker
+from backend.guardrails.cost import CostLimitExceeded, CostTracker, llm_cost_event_scope
 from backend.guardrails.delegation import DelegationCounter, DelegationLimitExceeded
 
 
@@ -47,6 +48,33 @@ class CostTrackerTests(unittest.TestCase):
         self.assertGreater(tracker.usd, 0)
         self.assertTrue(warnings)
         self.assertEqual(events[-1]["type"], "cost")
+
+    def test_real_crewai_event_bus_accounts_fake_completion_and_breaks_budget(self):
+        from crewai.utilities.events import (
+            LLMCallCompletedEvent,
+            LLMCallType,
+            crewai_event_bus,
+        )
+
+        config = replace(
+            settings,
+            groq_input_usd_per_million=1000.0,
+            groq_output_usd_per_million=1000.0,
+        )
+        tracker = CostTracker("event-bus-task", 0.001, settings=config)
+        response = SimpleNamespace(
+            usage=SimpleNamespace(prompt_tokens=2, completion_tokens=0)
+        )
+        event = LLMCallCompletedEvent(
+            response=response,
+            call_type=LLMCallType.LLM_CALL,
+        )
+        with llm_cost_event_scope(tracker, "groq"):
+            # Emit through CrewAI's actual v0.130.0 event bus, not a direct tracker call.
+            crewai_event_bus.emit(object(), event)
+            self.assertGreater(tracker.usd, 0)
+            with self.assertRaises(CostLimitExceeded):
+                tracker.check_limit()
 
     def test_raises_when_cost_exceeds_limit(self):
         config = replace(settings, groq_input_usd_per_million=1000.0, groq_output_usd_per_million=1000.0)

@@ -58,9 +58,7 @@ Return shape for every tool function:
 Tools never raise to the agent; they return ok:false with an error message.
 
 Guardrail entry point:
-```python
 def guarded(kind: str, tool: str, action: str): ...   # decorator
-```
 
 ## 5. Config (env vars)
 

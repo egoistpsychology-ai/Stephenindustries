@@ -3,13 +3,13 @@
 Status: todo / doing / review / done. Update when you start or finish.
 
 ## Phase 0: Setup
-- 0.1 Repo, docs, .gitignore (.env, .memory, *.sqlite)
-- 0.2 requirements.txt (pinned), .env.example, backend/config.py
+- 0.1 Repo, docs, .gitignore (.env, .memory, *.sqlite) — done
+- 0.2 requirements.txt (pinned), .env.example, backend/config.py — done
 
 ## Phase 1: Agents (no tools)
-- 1.1 Stephen (Groq), Seer and Escanor (DeepSeek) agents; manager delegates only at first
-- 1.2 Per-task delegation limit (MAX_DELEGATIONS_PER_TASK)
-- 1.3 Cost tracking + circuit breaker (MAX_COST_USD_PER_TASK), emits cost and error events
+- 1.1 Stephen (Groq), Seer and Escanor (DeepSeek) agents; manager delegates only at first — implementation scaffolded
+- 1.2 Per-task delegation limit (MAX_DELEGATIONS_PER_TASK) — implemented
+- 1.3 Cost tracking + circuit breaker (MAX_COST_USD_PER_TASK), emits cost and error events — implemented; post-completion enforcement limitation documented
 
 ## Phase 2: Chat app
 - 2.1 FastAPI app: /api/chat, /api/stream, /api/health, background tasks, SSE event bus

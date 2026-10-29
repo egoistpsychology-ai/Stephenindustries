@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 import warnings
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
@@ -37,22 +39,24 @@ def _text(value: Any) -> str:
 
 
 def _usage_from_event(event: Any) -> tuple[int, int] | None:
-    """Extract usage from common CrewAI/provider event shapes, if present."""
-    for usage in (_field(event, "usage", "token_usage", "usage_metadata"),
-                  _field(event, "response", "completion")):
-        if usage is None:
-            continue
-        prompt = _field(usage, "prompt_tokens", "input_tokens", "prompt_token_count")
-        completion = _field(usage, "completion_tokens", "output_tokens", "completion_token_count")
-        if prompt is not None and completion is not None:
-            return max(0, int(prompt)), max(0, int(completion))
+    """Extract usage from CrewAI's LLMCallCompletedEvent response payload."""
+    response = _field(event, "response", "completion")
+    usage = _field(event, "usage", "token_usage", "usage_metadata")
+    if usage is None:
+        usage = _field(response, "usage", "token_usage", "usage_metadata")
+    if usage is None:
+        usage = _field(response, "response", "completion")
+    if usage is None:
+        return None
+    prompt = _field(usage, "prompt_tokens", "input_tokens", "prompt_token_count")
+    completion = _field(usage, "completion_tokens", "output_tokens", "completion_token_count")
+    if prompt is None or completion is None:
         nested = _field(usage, "usage", "token_usage")
-        if nested is not None:
-            prompt = _field(nested, "prompt_tokens", "input_tokens")
-            completion = _field(nested, "completion_tokens", "output_tokens")
-            if prompt is not None and completion is not None:
-                return max(0, int(prompt)), max(0, int(completion))
-    return None
+        prompt = _field(nested, "prompt_tokens", "input_tokens")
+        completion = _field(nested, "completion_tokens", "output_tokens")
+    if prompt is None or completion is None:
+        return None
+    return max(0, int(prompt)), max(0, int(completion))
 
 
 @dataclass
@@ -89,6 +93,8 @@ class CostTracker:
                 "type": "cost", "task_id": self.task_id, "usd": round(self.usd, 8),
                 "tokens_in": self.tokens_in, "tokens_out": self.tokens_out,
             })
+        # CrewAI 0.130.0's event bus catches handler exceptions. Do not rely on
+        # this exception interrupting kickoff; _run_one checks after each stage.
         self.check_limit()
         return increment
 
@@ -98,8 +104,9 @@ class CostTracker:
             self.add_usage(provider, *usage)
             return
         prompt = _text(_field(event, "messages", "prompt", "input", "request"))
+        if not prompt:
+            prompt = _text(_field(event, "response", "completion"))
         completion = _text(_field(event, "response", "completion", "output", "result"))
-        # Use a non-zero minimum estimate if a provider omits usage and text fields.
         tokens_in = max(1, math.ceil(len(prompt) / 4))
         tokens_out = max(1, math.ceil(len(completion) / 4))
         self.add_usage(provider, tokens_in, tokens_out, estimated=True)
@@ -112,24 +119,47 @@ class CostTracker:
             )
 
 
+_ACTIVE_COST_CONTEXT: ContextVar[tuple[CostTracker, str, Callable[[dict], None] | None] | None] = ContextVar(
+    "stephen_active_cost_context", default=None
+)
+_EVENT_SCOPE_LOCK = threading.RLock()
+
+
 @contextmanager
 def llm_cost_event_scope(
     tracker: CostTracker, provider: str, on_event: Callable[[dict], None] | None = None,
 ) -> Iterator[None]:
-    """Account every LLMCallCompletedEvent in a scoped CrewAI event-bus subscription."""
+    """Account LLM events for the active task; serialize scopes for CrewAI 0.130's global bus."""
     try:
-        from crewai.events import LLMCallCompletedEvent, LLMCallStartedEvent, crewai_event_bus
+        from crewai.utilities.events import (
+            LLMCallCompletedEvent,
+            LLMCallStartedEvent,
+            crewai_event_bus,
+        )
     except ImportError as exc:
-        raise RuntimeError("Installed CrewAI version lacks the required LLM event hooks.") from exc
+        raise RuntimeError(
+            "Installed CrewAI version lacks the required LLM event hooks "
+            "(expected crewai.utilities.events for CrewAI 0.130.0)."
+        ) from exc
 
-    with crewai_event_bus.scoped_handlers():
-        @crewai_event_bus.on(LLMCallStartedEvent)
-        def _before_llm_call(source: Any, event: Any) -> None:
-            tracker.check_limit()
+    # CrewAI 0.130.0's event bus is global and scoped_handlers clears its handler
+    # registry. Serialize these scopes so simultaneous tasks cannot mix usage or
+    # temporarily erase one another's subscriptions.
+    with _EVENT_SCOPE_LOCK:
+        token = _ACTIVE_COST_CONTEXT.set((tracker, provider, on_event))
+        try:
+            with crewai_event_bus.scoped_handlers():
+                @crewai_event_bus.on(LLMCallStartedEvent)
+                def _before_llm_call(source: Any, event: Any) -> None:
+                    active = _ACTIVE_COST_CONTEXT.get()
+                    if active is not None:
+                        active[0].check_limit()
 
-        @crewai_event_bus.on(LLMCallCompletedEvent)
-        def _after_llm_call(source: Any, event: Any) -> None:
-            # Propagate the breaker exception through the synchronous event bus so
-            # CrewAI stops processing this kickoff instead of starting another call.
-            tracker.add_event_usage(provider, event)
-        yield
+                @crewai_event_bus.on(LLMCallCompletedEvent)
+                def _after_llm_call(source: Any, event: Any) -> None:
+                    active = _ACTIVE_COST_CONTEXT.get()
+                    if active is not None:
+                        active[0].add_event_usage(active[1], event)
+                yield
+        finally:
+            _ACTIVE_COST_CONTEXT.reset(token)

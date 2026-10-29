@@ -129,14 +129,7 @@ def llm_cost_event_scope(
 
         @crewai_event_bus.on(LLMCallCompletedEvent)
         def _after_llm_call(source: Any, event: Any) -> None:
-            try:
-                tracker.add_event_usage(provider, event)
-            except CostLimitExceeded:
-                # Recheck after kickoff returns too, because event dispatchers can
-                # log listener exceptions rather than propagate them to the caller.
-                if on_event:
-                    on_event({
-                        "type": "error", "task_id": tracker.task_id,
-                        "message": "Cost circuit breaker exceeded; stopping further model calls.",
-                    })
+            # Propagate the breaker exception through the synchronous event bus so
+            # CrewAI stops processing this kickoff instead of starting another call.
+            tracker.add_event_usage(provider, event)
         yield

@@ -88,10 +88,12 @@ def _run_one(
     on_event: StatusCallback | None,
 ) -> str:
     task = Task(description=description, expected_output=expected_output, agent=agent)
+    stage_tokens_in, stage_tokens_out = tracker.tokens_in, tracker.tokens_out
     with llm_cost_event_scope(tracker, provider, on_event):
         output = Crew(
             agents=[agent], tasks=[task], process=Process.sequential, verbose=False,
         ).kickoff()
+    tracker.reconcile_output_usage(provider, getattr(output, "token_usage", None), stage_tokens_in, stage_tokens_out)
     tracker.check_limit()
     return str(getattr(output, "raw", output))
 

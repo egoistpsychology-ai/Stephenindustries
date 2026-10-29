@@ -40,13 +40,16 @@ async def _run_task(task_id: str, message: str) -> None:
             task_id=task_id,
             on_event=lambda event: _queue_event(task_id, event),
         )
-    except Exception as exc:
-        _queue_event(task_id, {"type": "error", "task_id": task_id, "message": str(exc)})
-        _queue_event(task_id, {"type": "done", "task_id": task_id})
+    except Exception:
+        # run_team_task emits error and done in its own failure path.
+        # Request validation happens before the worker starts.
+        return
 
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest) -> dict[str, str]:
+    if not request.message.strip():
+        raise HTTPException(status_code=400, detail="message must not be empty")
     task_id = str(uuid.uuid4())
     _task_queues[task_id] = asyncio.Queue()
     _task_loops[task_id] = asyncio.get_running_loop()

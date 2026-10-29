@@ -111,6 +111,19 @@ class CostTracker:
         tokens_out = max(1, math.ceil(len(completion) / 4))
         self.add_usage(provider, tokens_in, tokens_out, estimated=True)
 
+    def reconcile_output_usage(self, provider: str, usage: Any, stage_tokens_in: int, stage_tokens_out: int) -> None:
+        """Use CrewOutput.token_usage when it reports more than event hooks saw in this stage."""
+        prompt = _field(usage, "prompt_tokens", "input_tokens", "prompt_token_count")
+        completion = _field(usage, "completion_tokens", "output_tokens", "completion_token_count")
+        if prompt is None or completion is None:
+            return
+        event_in = max(0, self.tokens_in - stage_tokens_in)
+        event_out = max(0, self.tokens_out - stage_tokens_out)
+        extra_in = max(0, int(prompt) - event_in)
+        extra_out = max(0, int(completion) - event_out)
+        if extra_in or extra_out:
+            self.add_usage(provider, extra_in, extra_out)
+
     def check_limit(self) -> None:
         if self.usd > self.limit_usd:
             raise CostLimitExceeded(
